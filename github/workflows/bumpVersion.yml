@@ -1,0 +1,71 @@
+name: Bump version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump_type:
+        type: choice
+        description: |
+          What version to bump?
+          premajor = 1.1.1-build.1 -> 2.0.0-build.0
+          preminor = 1.1.1-build.1 -> 1.1.0-build.0
+          prepatch = 1.1.1-build.1 -> 1.1.2-build.0
+          prerelease = 1.1.1-build.1 -> 1.1.1-build.2
+        options:
+          - premajor
+          - preminor
+          - prepatch
+          - prerelease
+        required: true
+        default: prerelease
+
+jobs:
+  createReleaseBranchJob:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 16
+
+      - name: Extract branch name
+        shell: bash
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        id: extract_branch
+
+      - name: Setup git
+        run: |
+          git config --global user.email ${{ secrets.GIT_COMMITTER_EMAIL }}
+          git config --global user.name ${{ secrets.GIT_COMMITTER_NAME }}
+
+      - name: Bump version
+        run: |
+          export NEW_VERSION=$(npm version ${{ github.event.inputs.version_bump_type }} --preid build -m "chore(release): %s") 
+          echo "##[set-output name=new_version;]$(echo $NEW_VERSION)"
+        id: new_version
+
+      - name: Push branch
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.NPM_TOKEN }}
+          branch: ${{ steps.extract_branch.outputs.branch }}
+
+      - name: Create Draft Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.new_version.outputs.new_version }}
+          release_name: ${{ steps.new_version.outputs.new_version }}
+          draft: true
+          prerelease: false
+
+      - uses: eregon/publish-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          release_id: ${{ steps.create_release.outputs.id }}

@@ -1,0 +1,41 @@
+name: Create build on tag
+
+env:
+  NPM_TOKEN: ${{secrets.NPM_TOKEN}}
+  AWS_DEFAULT_REGION: 'us-east-1'
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-sync-s3:
+    name: Push the build to S3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+          registry-url: https://npm.pkg.github.com/
+          scope: '@tenna-llc'
+      - name: Set current release in env
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      - name: Set short SHA
+        run: echo "GITHUB_SHA_SHORT=$(echo $GITHUB_SHA | cut -c1-8)" >> $GITHUB_ENV
+      - name: Output current release
+        run: echo ${{ env.RELEASE_VERSION }}
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      - run: npm run test
+      - run: npm run build:devbuild
+      - run: echo "Warehouse ${{ env.RELEASE_VERSION }} ${{ env.GITHUB_SHA_SHORT }}" > public/build/version.txt
+      # Upload to S3
+      - name: sync s3
+        run: aws s3 sync public/build s3://${{ secrets.AWS_S3_BUILDS_BUCKET }}/warehouse/${{ env.RELEASE_VERSION }}
+        env:
+          AWS_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.NON_PROD_NON_IAM_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NON_PROD_NON_IAM_AWS_SECRET_ACCESS_KEY }}
