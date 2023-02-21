@@ -1,7 +1,7 @@
 name: tracker-warehouse-frontend-web CI Pull request
 
 env:
-  NPM_TOKEN: ${{secrets.NPM_TOKEN}}
+  NPM_TOKEN: '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'
 on:
   pull_request:
     branches:

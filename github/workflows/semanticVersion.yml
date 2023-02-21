@@ -26,10 +26,10 @@ jobs:
           GIT_AUTHOR_NAME: ${{ secrets.GIT_AUTHOR_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_COMMITTER_EMAIL }}
           GIT_COMMITTER_NAME: ${{ secrets.GIT_COMMITTER_NAME }}
-          GITHUB_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: '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'
+          NPM_TOKEN: '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'
         run: |
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+          echo "//npm.pkg.github.com/:_authToken=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" > .npmrc
           echo "@tenna-llc:registry=https://npm.pkg.github.com/" >> .npmrc
           npm install -g https://github.com/tenna-llc/semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/npm -D --force
           npx semantic-release
