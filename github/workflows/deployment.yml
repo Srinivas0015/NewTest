@@ -1,0 +1,90 @@
+name: Deploy
+
+env:
+  NPM_TOKEN: ${{secrets.NPM_TOKEN}}
+  AWS_ACCOUNT: ${{secrets.NON_PROD_AWS_ACCOUNT}}
+  AWS_ACCESS_KEY_ID: ${{secrets.NON_PROD_NON_IAM_AWS_ACCESS_KEY_ID}}
+  AWS_SECRET_ACCESS_KEY: ${{secrets.NON_PROD_NON_IAM_AWS_SECRET_ACCESS_KEY}}
+  AWS_DEFAULT_REGION: 'us-east-1'
+
+on:
+  push:
+    branches:
+      - dv3
+      - dv2
+      - qa1
+      - stg
+      - prd
+      - demo
+
+jobs:
+  build-sync-s3:
+    name: Push the build to Environment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+          registry-url: https://npm.pkg.github.com/
+          scope: '@tenna-llc'
+      - name: Set Environment varilables current release in env
+        run: |
+          echo "RELEASE_VERSION=$(echo `node -e "const {version} = require('./package.json'); console.log(version)"`)" >> $GITHUB_ENV
+          echo "STAGE=${GITHUB_REF##*/}" >> $GITHUB_ENV
+          echo "GITHUB_SHA_SHORT=$(echo $GITHUB_SHA | cut -c1-8)" >> $GITHUB_ENV
+
+        # Set CLOUDFRONT DISTRIBUTION ID
+      - if: ${{ env.STAGE == 'dv3' }}
+        run: echo "CLOUDFRONT_DISTRIBUTION_ID=${{secrets.DV3_CLOUDFRONT_DISTRIBUTION_ID}}" >> $GITHUB_ENV
+      - if: ${{ env.STAGE == 'dv2' }}
+        run: echo "CLOUDFRONT_DISTRIBUTION_ID=${{secrets.DV2_CLOUDFRONT_DISTRIBUTION_ID}}" >> $GITHUB_ENV
+      - if: ${{ env.STAGE == 'qa1' }}
+        run: echo "CLOUDFRONT_DISTRIBUTION_ID=${{secrets.QA1_CLOUDFRONT_DISTRIBUTION_ID}}" >> $GITHUB_ENV
+      - if: ${{ env.STAGE == 'demo' }}
+        run: echo "CLOUDFRONT_DISTRIBUTION_ID=${{secrets.DEMO_CLOUDFRONT_DISTRIBUTION_ID}}" >> $GITHUB_ENV
+      - if: ${{ env.STAGE == 'stg' }}
+        run: echo "CLOUDFRONT_DISTRIBUTION_ID=${{secrets.STG_CLOUDFRONT_DISTRIBUTION_ID}}" >> $GITHUB_ENV
+      - if: ${{ env.STAGE == 'prd' }}
+        run: echo "CLOUDFRONT_DISTRIBUTION_ID=${{secrets.PRD_CLOUDFRONT_DISTRIBUTION_ID}}" >> $GITHUB_ENV
+
+      - name: Output current release
+        run: echo ${{ env.RELEASE_VERSION }}
+      - run: rm -rf tmp
+      - run: mkdir tmp
+      - run: aws s3 sync s3://${{ secrets.AWS_S3_BUILDS_BUCKET }}/warehouse/v${{ env.RELEASE_VERSION }} tmp
+        env:
+          AWS_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+      - run: cp .env.${{ env.STAGE }}.js tmp/.env.js
+      # Set PROD AWS ACCOUNT variables
+      - if: ${{env.STAGE == 'stg' || env.STAGE == 'prd' || env.STAGE == 'demo'}}
+        run: |
+          echo "AWS_ACCESS_KEY_ID=${{secrets.PROD_NON_IAM_AWS_ACCESS_KEY_ID}}" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=${{secrets.PROD_NON_IAM_AWS_SECRET_ACCESS_KEY}}" >> $GITHUB_ENV
+          echo "AWS_ACCOUNT=${{secrets.PROD_AWS_ACCOUNT}}" >> $GITHUB_ENV
+
+      - run: aws s3 sync tmp s3://too-web-${{ env.AWS_ACCOUNT }}/warehouse/${{ env.STAGE }}
+        env:
+          AWS_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+      - run: rm -rf tmp
+      - name: Create cache invalidation
+        uses: chetan/invalidate-cloudfront-action@v1.3
+        env:
+          DISTRIBUTION: ${{ env.CLOUDFRONT_DISTRIBUTION_ID }}
+          PATHS: '/index.html /version.txt /.env.js'
+          AWS_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+      - run: echo "NOTIFICATION_MESSAGE=warehouse v${{ env.RELEASE_VERSION }} ${{ env.GITHUB_SHA_SHORT }} is deployed to ${{env.STAGE}}" >> $GITHUB_ENV
+      - name: Notify dedicated teams channel
+        uses: jdcargile/ms-teams-notification@v1.3
+        with:
+          github-token: ${{ github.token }} # this will use the runner's token.
+          ms-teams-webhook-uri: ${{ secrets.MS_TEAMS_WEBHOOK_URI }}
+          notification-summary: ${{env.NOTIFICATION_MESSAGE}}
+          notification-color: 17a2b8
+          timezone: America/New_York

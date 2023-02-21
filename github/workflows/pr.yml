@@ -1,0 +1,32 @@
+name: tracker-warehouse-frontend-web CI Pull request
+
+env:
+  NPM_TOKEN: ${{secrets.NPM_TOKEN}}
+on:
+  pull_request:
+    branches:
+      - '*'
+jobs:
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+          registry-url: https://npm.pkg.github.com/
+          scope: '@tenna-llc'
+      - run: sudo apt-get update
+      - run: git fetch --all
+      - name: Cache node_modules/
+        uses: actions/cache@v1
+        with:
+          path: node_modules
+          key: ${{ runner.OS }}-package-lock-cache-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: ${{ runner.OS }}-package-lock-cache-
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      - run: COMMIT_RANGE=$(git ls-remote | grep -w refs/heads/${{github.base_ref}} | cut -f 1)..${{github.sha}} npm run lint:ci
+      - run: npm run test -- --coverage
